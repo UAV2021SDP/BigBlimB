@@ -1,3 +1,9 @@
+# possible methods:
+#   - RPi.GPIO: good for GPIO interrupts, would need to use a flag variable to handle more complex systems
+#       - https://sourceforge.net/p/raspberry-gpio-python/wiki/BasicUsage/ can totally use flags
+#   - Async.io: introduced "await" keyword to do asyncronous code
+#   - Micropython: NO GOOD - is not a libary, is essentially a new coding language
+
 import RPi.GPIO as GPIO
 
 # what GPIO pin is the button? GPIO number is 16 for this example
@@ -27,3 +33,29 @@ try:
 except KeyboardInterrupt:
     GPIO.cleanup()
     # ends the program when this happens
+
+
+
+
+"""
+# ------------------------------------------------------------------------------------
+import asyncio
+
+# keyword "async" allows it to return a coroutine object 
+async def main():
+    print("main")
+    # await foo()
+    # creates task 
+    task = async.create_task(foo('text'))
+    await task # wait for the task to finish before moving on (if you want)
+    print("finished") # this happens before the end of foo() because of the 1 second wait in foo()
+
+async def foo():
+    print("foo")
+    # must use "await" keyword to call an async function. "Await"s must happen in functions
+    await asyncio.sleep(1) # sleep for 1 second
+
+# Async Event-Loop: waits for and dispatches events or messages in a program
+# entry point into our prgram: added async main to the event loop and runs event loop
+asyncio.run(main())
+"""

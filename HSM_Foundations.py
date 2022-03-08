@@ -22,6 +22,7 @@ import logging
 from typing import List, Any, Optional, Callable
 #used for test harness
 from unittest.mock import MagicMock
+import pytest
 
 # in order to be an HSM, we need to be able to...
 # - be able to add a child state machine to a state
@@ -189,6 +190,17 @@ class NullTransition(Transition):
             if self._action:
                 self._action(data)
 
+class ExitState(State):
+
+    def __init__(self, status="Normal"):
+        self._name = "ExitState"
+        self._status = status
+        super().__init__(self._status + self._name)
+
+    @property
+    def status(self):
+        return self._status
+
 # an FSM has a collection of states, events, and transitions, exit and initial states
 # it also has a name so we can keep track and have multiple
 class StateMachine(object):
@@ -310,6 +322,7 @@ class StateMachine(object):
 
     @property
     def name(self):
+        return self._name
 
 
 # ---------------Test Harness---------------#
