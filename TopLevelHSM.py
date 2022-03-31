@@ -62,11 +62,8 @@ Top_Level.add_transition(Obstacle_Avoidance_State, Manual_Flight_Error_State, CV
 
 
 #Testing harness:
-def PrintEntryState(data):
-    print(Top_Level._current_state.name, "- entry data:", data)
-
 Top_Level_Event_Dict = {
-    'No_Sys_Errors' : No_Sys_Errors_Event,
+    "No_Sys_Errors" : No_Sys_Errors_Event,
     "Sys_Errors" : Sys_Errors_Event,
     "Takeoff_MAV" : Takeoff_MAV_Event,
     "CV_Errors" : CV_Errors_Event,
@@ -78,6 +75,9 @@ Top_Level_Event_Dict = {
     "Finished_Sampling" : Finished_Sampling_Event
 }
 
+def PrintEntryState(data):
+    print(Top_Level._current_state.name, "- Entry Event:", data)
+
 Startup_State.on_entry(PrintEntryState)
 Takeoff_Wait_State.on_entry(PrintEntryState)
 Obstacle_Avoidance_State.on_entry(PrintEntryState)
@@ -88,7 +88,6 @@ Manual_Check_Error_State.on_entry(PrintEntryState)
 Manual_Flight_Error_State.on_entry(PrintEntryState)
 
 Top_Level.start("Hello World")
-i = 0
 
 while(1):
     user_event = input("Enter an event: ")
