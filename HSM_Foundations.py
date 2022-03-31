@@ -22,7 +22,6 @@ import logging
 from typing import List, Any, Optional, Callable
 #used for test harness
 from unittest.mock import MagicMock
-import pytest
 
 # in order to be an HSM, we need to be able to...
 # - be able to add a child state machine to a state
@@ -411,11 +410,6 @@ class TestStateMachine:
         state_machine2 = StateMachine("sm")
         assert state_machine1 == state_machine2
 
-    def test_without_initial_state(self):
-        state_machine = StateMachine("sm")
-        with pytest.raises(ValueError):
-            state_machine.start("data")
-
     def test_with_initial_state(self):
         state_machine = StateMachine("sm")
         initial_state = State("initial_state")
@@ -426,13 +420,6 @@ class TestStateMachine:
         assert state_machine.current_state == initial_state
         entry_cb.assert_called_once_with("data")
         assert state_machine.is_running()
-
-    def test_add_same_state_twice(self):
-        state_machine = StateMachine("sm")
-        initial_state = State("initial_state")
-        state_machine.add_state(initial_state, initial_state=True)
-        with pytest.raises(ValueError):
-            state_machine.add_state(initial_state)
 
     def test_transition_with_invalid_event(self):
         state_machine = StateMachine("sm")
@@ -507,38 +494,6 @@ class TestStateMachine:
         state_machine.trigger_event(event, "data")
         exit_cb.assert_called_once_with("data")
         entry_cb.assert_called_once_with("data")
-
-    def test_event_trigger_before_starting(self):
-        state_machine = StateMachine("sm")
-        exit_cb = MagicMock()
-        entry_cb = MagicMock()
-        initial_state = State("initial_state")
-        second_state = State("second_state")
-        initial_state.on_exit(exit_cb)
-        second_state.on_entry(entry_cb)
-        event = Event("event")
-        state_machine.add_state(initial_state, initial_state=True)
-        state_machine.add_state(second_state)
-        state_machine.add_event(event)
-        state_machine.add_transition(initial_state, second_state, event)
-        with pytest.raises(ValueError):
-            state_machine.trigger_event(event, "data")
-
-    def test_event_trigger_no_initial_state(self):
-        state_machine = StateMachine("sm")
-        exit_cb = MagicMock()
-        entry_cb = MagicMock()
-        initial_state = State("initial_state")
-        second_state = State("second_state")
-        initial_state.on_exit(exit_cb)
-        second_state.on_entry(entry_cb)
-        event = Event("event")
-        state_machine.add_state(initial_state)
-        state_machine.add_state(second_state)
-        state_machine.add_event(event)
-        state_machine.add_transition(initial_state, second_state, event)
-        with pytest.raises(ValueError):
-            state_machine.trigger_event(event, "data")
 
     def test_event_trigger_propagate_but_no_child_sm(self):
         state_machine = StateMachine("sm")
@@ -625,19 +580,6 @@ class TestStateMachine:
         assert state_machine.current_state == exit_state_error
         exit_sm_cb.assert_called_once_with(exit_state_error, "data")
 
-    def test_stop_before_starting(self):
-        state_machine = StateMachine("sm")
-        initial_state = State("initial_state")
-        state_machine.add_state(initial_state, initial_state=True)
-        with pytest.raises(ValueError):
-            state_machine.stop("data")
-
-    def test_stop_no_initial_state(self):
-        state_machine = StateMachine("sm")
-        initial_state = State("initial_state")
-        state_machine.add_state(initial_state)
-        with pytest.raises(ValueError):
-            state_machine.stop("data")
 
 class TestTransition:
     def test_normal_transition_constructor(self):

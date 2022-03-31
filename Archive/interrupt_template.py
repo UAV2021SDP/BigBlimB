@@ -4,6 +4,10 @@
 #   - Async.io: introduced "await" keyword to do asyncronous code
 #   - Micropython: NO GOOD - is not a libary, is essentially a new coding language
 
+'''
+    Silly - we dont even need interrupts. Polling within the SM will be plent efficient for our needs.
+'''
+
 import RPi.GPIO as GPIO
 
 # what GPIO pin is the button? GPIO number is 16 for this example
