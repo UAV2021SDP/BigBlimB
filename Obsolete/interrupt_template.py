@@ -1,13 +1,24 @@
+"""
+
+# We do not need interrupts for the HSM
+# The transition class can have conditions and the SM class has the trigger_event function to check for transitions every loop
+
 # possible methods:
 #   - RPi.GPIO: good for GPIO interrupts, would need to use a flag variable to handle more complex systems
 #       - https://sourceforge.net/p/raspberry-gpio-python/wiki/BasicUsage/ can totally use flags
 #   - Async.io: introduced "await" keyword to do asyncronous code
 #   - Micropython: NO GOOD - is not a libary, is essentially a new coding language
 
+<<<<<<<< HEAD:Archive/interrupt_template.py
 '''
     Silly - we dont even need interrupts. Polling within the SM will be plent efficient for our needs.
 '''
 
+========
+
+
+# -------------------------------------RPi.GPIO-----------------------------------------
+>>>>>>>> 1dd1dbad8566eaa19d6eb8d4f68f75aa10bca799:Obsolete/interrupt_template.py
 import RPi.GPIO as GPIO
 
 # what GPIO pin is the button? GPIO number is 16 for this example
@@ -41,8 +52,7 @@ except KeyboardInterrupt:
 
 
 
-"""
-# ------------------------------------------------------------------------------------
+# -------------------------------------ASYNCIO-----------------------------------------
 import asyncio
 
 # keyword "async" allows it to return a coroutine object 
@@ -62,4 +72,6 @@ async def foo():
 # Async Event-Loop: waits for and dispatches events or messages in a program
 # entry point into our prgram: added async main to the event loop and runs event loop
 asyncio.run(main())
+
 """
+
