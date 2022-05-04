@@ -1,10 +1,98 @@
 from HSM_Foundations import *
+import CV_OD_Func
+import CV_WD_Func
 import RPi.GPIO as GPIO
 import time
+import sys
+
+for p in sys.path:
+    print( p )
 
 #variable definition
 free_winch_counter = 0
 sampling_start_time = 0
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+# Actions
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+def Startup_State_Init(data):
+    print("--Startup_State_Init function\r")
+    cv = CV_OD_Func.InitCV()
+    OD_VideoStream = CV_OD_Func.InitCam(cv)
+    WD_VideoSteam = CV_WD_Func.InitWDCam()
+
+def Water_CV(data):
+    print("--water cv function\r")
+    water_found = 0
+    if water_found:
+        Top_Level.trigger_event(Water_Detect_Event, "Water was detected initially\r")
+    else:
+        Top_Level.trigger_event(No_Water_Detect_Event, "Water was not detected initially\r")
+
+def Obstacle_Avoidance_CV(data):
+    print("--Ongoing_Obstacle_Avoidance_CV function\r")
+    # call CV function
+    # if you see an event, send a MAVLink msg about the obstacle
+
+def Send_Wonder_Command(data):
+    # send MAVLink msg to vehicle
+    # start timer
+    print("--Send_Wonder_Command & start timer function\r")
+
+def Cancel_Timer(data):
+    print("--Cancel timer function\r")
+    #check if it is still running before canceling it.
+
+def Send_Hover_Command(data):
+    print("--Send hover command function\r")
+    #send MAVLink msg to hover in place
+    Sampling_SubSM.start("Hello World")
+    
+def Init_Lower_Winch_SubState(data):
+    print("--Init_Lower_Winch_SubState function:"+data)
+    motor.setDirection(Direction["deploy"])
+    motor.setRampDirection(RampDirection["rampOn"])
+    motor.setTurnTicks(100)
+
+def Init_Hold_For_Sampling_SubState(data):
+    print("--Start sampling timer function\r")
+    sampling_start_time = time.time()
+    #start a 30 sec timer
+
+def Hold_For_Sampling_SubState_Check(data):
+    if (time.time() - sampling_start_time >= 30):
+        print("--Sampling timer is done", time.time() - sampling_start_time)
+        Top_Level.trigger_event(Timer_Ends_Event, "Finished Sampling Timer\r")
+
+def Finished_Sampling(data):
+    print("--Finished_Sampling function\r")
+    Top_Level.trigger_event(Sampling_Completed_Event, "Finished Sampling\r")
+    Sampling_SubSM.stop("Finished Sampling the man.")
+
+def Init_Retract_Winch_SubState(data):
+    print("--Init_Retract_Winch_SubState function\r")
+    motor.setDirection(Direction["retract"])
+    motor.setRampDirection(RampDirection["rampOn"])
+
+def Init_Free_Retracting_Winch_SubState(data):
+    print("--Init_Free_Retracting_Winch_SubState function\r")
+    motor.setDirection(Direction["deploy"])
+    motor.setRampDirection(RampDirection["rampOn"])
+    motor.setTurnTicks(10)
+    free_winch_counter += 1
+    if free_winch_counter < 3:
+        print("--Increasing winch counter:", free_winch_counter)
+    else:
+        print("--Deployment error, go to manual\r")
+        Top_Level.trigger_event(Manual_Takeover_Event, "Retract Error - go to manual\r")
+    
+def Init_Lower_UAV_Retract_Winch_SubState(data):
+    print("--Init_Lower_UAV_Retract_Winch_SubState function\r")
+    motor.setDirection(Direction["retract"])
+    motor.setRampDirection(RampDirection["rampOn"])
+
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # Defining top level state machine
@@ -39,7 +127,6 @@ Tension_Increased_Event = Event("Tension_Increased_Event")
 Tension_Lost_Event = Event("Tension_Lost_Event")
 No_Event = Event("No_Event")
 
-
 # Adding States to Top Level
 Top_Level.add_state(Startup_State, initial_state=True)
 Top_Level.add_state(Takeoff_Wait_State)
@@ -49,6 +136,11 @@ Top_Level.add_state(Sampling_State)
 Top_Level.add_state(Water_Detect_State)
 Top_Level.add_state(Manual_Check_Error_State)
 Top_Level.add_state(Manual_Flight_Error_State)
+
+# adding entry and exit events 
+Sampling_State.on_entry(Send_Hover_Command)
+Sampling_State.on_entry(Init_Lower_Winch_SubState)
+Startup_State.on_entry(Startup_State_Init)
 
 # Adding Events to Top Level
 Top_Level.add_event(No_Sys_Errors_Event)
@@ -62,7 +154,6 @@ Top_Level.add_event(Finished_Sampling_Event)
 Top_Level.add_event(Manual_Takeover_Event)
 Top_Level.add_event(Sampling_Completed_Event)
 Top_Level.add_event(Water_Found_Tension_Lost_Event)
-Top_Level.add_event(Finished_Sampling_Event)
 Top_Level.add_event(Tension_Increased_Event)
 Top_Level.add_event(No_Event)
 
@@ -90,6 +181,20 @@ Top_Level.add_transition(Water_Detect_State, Manual_Flight_Error_State, Manual_T
 # GPIO Stuff
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
+# motor and GPIO inits:
+GPIO.setmode(GPIO.BOARD)
+# water sensor
+GPIO.setup(11, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)
+# strain gauge sensor
+GPIO.setup(33, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)
+# motor GPIOs
+GPIO.setup(22, GPIO.OUT)    # motor PWM
+GPIO.setup(16, GPIO.OUT)    # retract when high
+GPIO.setup(18, GPIO.OUT)    # deploy when high
+# motor hall sensor inputs
+GPIO.setup(36, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)   #A
+GPIO.setup(38, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)   #B
+
 # motor states as it circles the encoder
 MotorStates = {
     "State00" : 0b00,
@@ -116,8 +221,7 @@ class Motor:
         self.direction = Direction["deploy"]
         self.rampDirection = RampDirection["rampOn"]
         self.startTime = 0
-        self.deployMotor = GPIO.PWM(12, 50)   # channel=12 frequency=50Hz   
-        self.retractMotor = GPIO.PWM(32, 50)  # channel=32 frequency=50Hz
+        self.PWM_DutyCycle = GPIO.PWM(22, 50)  # channel=12 frequency=50Hz
         self.strainLost = 0
         self.turnTicks = 0
     # changing the position count of the rotary encoder
@@ -131,9 +235,9 @@ class Motor:
         return self.count
     # changing the speed of the motor
     def increaseSpeed(self):
-        self.speed = self.speed + 20
+        self.speed = self.speed + 13    # max duty cycle is 65. 65/5 = 13
     def decreaseSpeed(self):
-        self.speed = self.speed - 20
+        self.speed = self.speed - 13    # max duty cycle is 65. 65/5 = 13
     def getSpeed(self):
         return self.speed 
     # changing the speed of the motor
@@ -147,28 +251,19 @@ class Motor:
     def getDirection(self):
         return self.direction
     #doing motor stuff
-    def getDeployMotor(self):
-        return self.deployMotor
-    def getRetractMotor(self):
-        return self.retractMotor
     def startMotorDirection(self):
-        resetStrainLost()
+        self.resetStrainLost()
         if self.direction == Direction["deploy"]:
-            self.retractMotor.stop()
-            self.deployMotor.start(this.speed)
+            GPIO.output(16, GPIO.LOW)
+            GPIO.output(18, GPIO.HIGH)
         elif self.direction == Direction["retract"]:
-            self.deplotMotor.stop()
-            self.retractMotor.start(this.speed)
-    def setControllingMotor(self):
-        if self.direction == Direction["deploy"]:
-            self.retractMotor.stop()
-            self.deployMotor.ChangeDutyCycle(self.speed)
-        elif self.direction == Direction["retract"]:
-            self.deplotMotor.stop()
-            self.retractMotor.ChangeDutyCycle(self.speed)
+            GPIO.output(16, GPIO.HIGH)
+            GPIO.output(18, GPIO.LOW)
+        self.PWM_DutyCycle.ChangeDutyCycle(self.speed)
+    def setMotorDutyCycle(self):
+        self.PWM_DutyCycle.ChangeDutyCycle(self.speed)
     def stopMotors(self):
-        self.retractMotor.stop()
-        self.deployMotor.stop()
+        self.PWM_DutyCycle.stop()
     # ramp direction stuff with the motor (ramp on or ramp off)
     def setRampDirection(self, rampDirection):
         self.rampDirection = rampDirection
@@ -224,7 +319,7 @@ def getNewAB():
     B = GPIO.input(38)
     return ((A<<1)+B)
 
-def runMotorSM():
+def runMotorSM(data):
     # info about PWM: https://sourceforge.net/p/raspberry-gpio-python/wiki/PWM/
     # PWM_Pin.start(dc)                  # start PWM where dc is the duty cycle (0.0 <= dc <= 100.0)
     # PWM_Pin.ChangeFrequency(freq)      # change frequency where freq is the new frequency in Hz
@@ -244,132 +339,60 @@ def runMotorSM():
     # update the motor based on the current speed and direction
     # always update the rotary encoder to get the new position
     newAB = getNewAB()
-    RunMotor(motor, newAB)
+    RunMotor(newAB)
     currentTime = time.time()
 
+    
+
     #if at any point tension is lost, turn off the motor and post the event
-    if ((GPIO.input(STRAINGAUGE) <= TENSIONLOST) or (GPIO.input(STRAINGAUGE) >= TENSIONGAINED)):
+    '''if ((GPIO.input(STRAINGAUGE) <= TENSIONLOST) or (GPIO.input(STRAINGAUGE) >= TENSIONGAINED)):'''
+    if False:
         motor.strainLost()                  # save the info as a state
         motor.setStartTimeI(currentTime)    # reset start time and direction, start turning off
         motor.decreaseSpeed()
         motor.setRampDirection(RampDirection["rampOff"])
     
     # this is our first time starting up
-    if ((motor.getSpeed() == 0) and (motor.getRampDirection() = RampDirection["rampOn"])):    
+    if ((motor.getSpeed() == 0) and (motor.getRampDirection() == RampDirection["rampOn"])):    
         motor.setStartTime(currentTime)
         motor.increaseSpeed()
         motor.startMotorDirection()     #get the motor moving in the appropiate direction
     # we just finished deploying
-    elif ((motor.getSpeed() == 0) and (motor.getRampDirection() = RampDirection["rampOff"])):
+    elif ((motor.getSpeed() == 0) and (motor.getRampDirection() == RampDirection["rampOff"])):
         motor.stopMotors()
         # check if ever lost strain and if we are touching water, post corresponding event
         if(motor.getDirection() == Direction["deploy"]):
-            if(GPIO.input(11) == 1):
+            if(GPIO.input(11) == 1):    # check the water sensor
                 # we are good to start sampling, we found water
                 Top_Level.trigger_event(Water_Found_Tension_Lost_Event, "Found water, start sampling\r")
-            elif (getStrainLost() == 0):
+            elif (motor.getStrainLost() == 0):
                     # we never lost tension, need to lower the sensor more.
                     Top_Level.trigger_event(Timer_Ends_Event, "Lower the sensor more, water wasn't found\r")
             else:
                 # we lost tension at some point and never found water, move on.
                 Top_Level.trigger_event(Tension_Lost_Event, "Tension was lost during deploy, move on\r")
-        elif(motor.getDirection() = Direction["retract"]):
+        elif(motor.getDirection() == Direction["retract"]):
             # if we are retracting, did we go all the way or get stuck?
-            if (getStrainLost() == 0) or (motor.getCount()<100):
+            if (motor.getStrainLost() == 0) or (motor.getCount()<100):
                 Top_Level.trigger_event(Timer_Ends_Event, "Motor was fully retracted\r")
             else:
                 Top_Level.trigger_event(Tension_Increased_Event, "Motor got stuck during retraction\r")
 
     # we are either ramping up or ramping down, just wait for time to pass
-    elif (motor.getSpeed() < 100):
+    elif (motor.getSpeed() < 65):
         # if enough time has passed, redefine new start time and update motor speed
         if (motor.getStartTime() - currentTime >= 0.5):
-            if getDirection() == Direction["deploy"]:
+            if motor.getDirection() == Direction["deploy"]:
                 motor.increaseSpeed()
-            else if getDirection() == Direction["retract"]:
+            elif motor.getDirection() == Direction["retract"]:
                 motor.decreaseSpeed()
             motor.setStartTime(currentTime)
-            setControllingMotor()
+            motor.setMotorDutyCycle()
     # we got as far as we want, start slowing to stop
-    elif ((motor.getSpeed() == 100) and (motor.getStartTime() - currentTime == motor.getTurnTicks())):
-        setRampDirection(RampDirection["rampOff"])
+    elif ((motor.getSpeed() >= 65) and (motor.getStartTime() - currentTime == motor.getTurnTicks())):
+        motor.setRampDirection(RampDirection["rampOff"])
         motor.decreaseSpeed()
         motor.setStartTime(currentTime)
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# Actions
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-
-'''all actions need filling in'''
-def Water_CV(data):
-    print("--water cv function\r")
-    water_found = 0
-    if water_found:
-        Top_Level.trigger_event(Water_Detect_Event, "Water was detected initially\r")
-    else:
-        Top_Level.trigger_event(No_Water_Detect_Event, "Water was not detected initially\r")
-
-def Obstacle_Avoidance_CV(data):
-    print("--Ongoing_Obstacle_Avoidance_CV function\r")
-    # call CV function
-    # if you see an event, send a MAVLink msg about the obstacle
-
-def Send_Wonder_Command(data):
-    # send MAVLink msg to vehicle
-    # start timer
-    print("--Send_Wonder_Command & start timer function\r")
-
-def Cancel_Timer(data):
-    print("--Cancel timer function\r")
-    #check if it is still running before canceling it.
-
-def Send_Hover_Command(data):
-    print("--Send hover command function\r")
-    #send MAVLink msg to hover in place
-
-def Init_Hold_For_Sampling_SubState(data):
-    print("--Start sampling timer function\r")
-    sampling_start_time = time.time()
-    #start a 30 sec timer
-
-def Init_Hold_For_Sampling_SubState(data):
-    if (time.time() - sampling_start_time >= 30):
-        print("--Sampling timer is done\r")
-        Top_Level.trigger_event(Timer_Ends_Event, "Finished Sampling Timer\r")
-
-def Finished_Sampling(data):
-    print("--Finished_Sampling function\r")
-    Top_Level.trigger_event(Sampling_Completed_Event, "Finished Sampling\r")
-
-def Init_Lower_Winch_SubState(data):
-    print("--Init_Lower_Winch_SubState function\r")
-    motor.setDirection(Direction["deploy"])
-    motor.setRampDirection(RampDirection["rampOn"])
-    motor.setTurnTicks(100)
-
-def Init_Retract_Winch_SubState(data):
-    print("--Init_Retract_Winch_SubState function\r")
-    motor.setDirection(Direction["retract"])
-    motor.setRampDirection(RampDirection["rampOn"])
-
-def Init_Free_Retracting_Winch_SubState(data):
-    print("--Init_Free_Retracting_Winch_SubState function\r")
-    motor.setDirection(Direction["deploy"])
-    motor.setRampDirection(RampDirection["rampOn"])
-    motor.setTurnTicks(10)
-    free_winch_counter += 1
-    if free_winch_counter < 3:
-        print("--Increasing winch counter:", free_winch_counter)
-    else:
-        print("--Deployment error, go to manual\r")
-        Top_Level.trigger_event(Manual_Takeover_Event, "Retract Error - go to manual\r")
-    
-def Init_Lower_UAV_Retract_Winch_SubState(data):
-    print("--Init_Lower_UAV_Retract_Winch_SubState function\r")
-    motor.setDirection(Direction["retract"])
-    motor.setRampDirection(RampDirection["rampOn"])
 
 
 
@@ -445,7 +468,6 @@ Initial_Water_Detect_State.on_entry(Water_CV)
             # if still stuck after 3 times, switch to manual control error mode.
 Sampling_SubSM = StateMachine("Sampling_SubSM")
 Sampling_State.set_child_sm(Sampling_SubSM)
-Sampling_State.on_entry(Send_Hover_Command)
 # define the substates
 Lower_Winch_SubState = State("Lower_Winch_SubState")                # lower the winch using the winch SM
 Hold_For_Sampling_SubState = State("Hold_For_Sampling_SubState")    # basically just a 30 sec timer to allow for sampling
@@ -454,13 +476,6 @@ Lower_UAV_Retract_Winch_SubState = State("Lower_UAV_Retract_Winch_SubState")    
 Lower_UAV_SubState = State("Lower_UAV_SubState")                    # lower the airship by ~10 ft
 Finish_SubState = State("Finish_SubState")                          # we are done and ready to leave the SM
 Free_Retracting_Winch_SubState = State("Free_Retracting_Winch_SubState")        # re-retract the winch if we got stuck
-# add state actions if needed
-Hold_For_Sampling_SubState.on_entry(Init_Hold_For_Sampling_SubState)   # start a 30s timer for sampling
-Lower_Winch_SubState.on_entry(Init_Lower_Winch_SubState)
-Retract_Winch_SubState.on_entry(Init_Retract_Winch_SubState)
-Free_Retracting_Winch_SubState.on_entry(Init_Free_Retracting_Winch_SubState)
-Lower_UAV_Retract_Winch_SubState.on_entry(Init_Lower_UAV_Retract_Winch_SubState)
-Finish_SubState.on_entry(Finished_Sampling)               # finished sampling, move on on the top level
 # add substates to subSM
 Sampling_SubSM.add_state(Lower_Winch_SubState, initial_state=True)
 Sampling_SubSM.add_state(Hold_For_Sampling_SubState)
@@ -469,6 +484,24 @@ Sampling_SubSM.add_state(Lower_UAV_Retract_Winch_SubState)
 Sampling_SubSM.add_state(Lower_UAV_SubState)
 Sampling_SubSM.add_state(Free_Retracting_Winch_SubState)
 Sampling_SubSM.add_state(Finish_SubState)
+# add state actions if needed
+Hold_For_Sampling_SubState.on_entry(Init_Hold_For_Sampling_SubState)   # start a 30s timer for sampling
+# Lower_Winch_SubState.on_entry(Init_Lower_Winch_SubState)
+Retract_Winch_SubState.on_entry(Init_Retract_Winch_SubState)
+Free_Retracting_Winch_SubState.on_entry(Init_Free_Retracting_Winch_SubState)
+Lower_UAV_Retract_Winch_SubState.on_entry(Init_Lower_UAV_Retract_Winch_SubState)
+Finish_SubState.on_entry(Finished_Sampling)               # finished sampling, move on on the top level
+# add events
+Sampling_SubSM.add_event(No_Sys_Errors_Event)
+Sampling_SubSM.add_event(Timer_Ends_Event)
+Sampling_SubSM.add_event(Manual_Takeover_Event)
+Sampling_SubSM.add_event(Sampling_Completed_Event)
+Sampling_SubSM.add_event(Water_Found_Tension_Lost_Event)
+Sampling_SubSM.add_event(Tension_Lost_Event)
+Sampling_SubSM.add_event(Tension_Increased_Event)
+Sampling_SubSM.add_event(No_Event)
+Sampling_SubSM.add_event(Water_Detect_Event)
+Sampling_SubSM.add_event(Finished_Sampling_Event)
 # add transitions
 Sampling_SubSM.add_transition(Lower_Winch_SubState, Hold_For_Sampling_SubState, Water_Found_Tension_Lost_Event) # successfully lowered winch
 Sampling_SubSM.add_transition(Lower_Winch_SubState, Retract_Winch_SubState, Tension_Lost_Event)                 # winch deployed in incorrect location, retract and move on
@@ -479,24 +512,18 @@ Sampling_SubSM.add_transition(Hold_For_Sampling_SubState, Retract_Winch_SubState
 Sampling_SubSM.add_transition(Retract_Winch_SubState, Free_Retracting_Winch_SubState, Tension_Increased_Event)  # winch got stuck, retry
 Sampling_SubSM.add_transition(Free_Retracting_Winch_SubState, Retract_Winch_SubState, Timer_Ends_Event)        # attempt to re-retract the winch       
 Sampling_SubSM.add_transition(Retract_Winch_SubState, Finish_SubState, Timer_Ends_Event)                       # finished sampling successfully, move on :)
-# defining null transitions
-Retract_Winch_Null_Transition = NullTransition(Retract_Winch_SubState, No_Sys_Errors_Event)    
-Lower_Winch_Null_Transition = NullTransition(Lower_Winch_SubState, No_Sys_Errors_Event) 
-Free_Winch_Retract_Null_Transition = NullTransition(Free_Retracting_Winch_SubState, No_Sys_Errors_Event)    
-Lower_UAV_Winch_Retract_Null_Transition = NullTransition(Lower_UAV_Retract_Winch_SubState, No_Sys_Errors_Event)    
-Hold_For_Sampling_SubState_Null_Transition =  NullTransition(Hold_For_Sampling_SubState, No_Sys_Errors_Event)    
+# add the null transitions to the SM
+Retract_Winch_Null_Transition = Sampling_SubSM.add_null_transition(Retract_Winch_SubState, No_Event)
+Lower_Winch_Null_Transition = Sampling_SubSM.add_null_transition(Lower_Winch_SubState, No_Event) 
+Free_Winch_Retract_Null_Transition = Sampling_SubSM.add_null_transition(Free_Retracting_Winch_SubState, No_Event)    
+Lower_UAV_Winch_Retract_Null_Transition = Sampling_SubSM.add_null_transition(Lower_UAV_Retract_Winch_SubState, No_Event)    
+Hold_For_Sampling_SubState_Null_Transition =  Sampling_SubSM.add_null_transition(Hold_For_Sampling_SubState, No_Event) 
 # adding action to null transitions
 Retract_Winch_Null_Transition.add_action(runMotorSM)
 Lower_Winch_Null_Transition.add_action(runMotorSM)
 Free_Winch_Retract_Null_Transition.add_action(runMotorSM)
 Lower_UAV_Winch_Retract_Null_Transition.add_action(runMotorSM)
-Hold_For_Sampling_SubState_Null_Transition.add_action(Init_Hold_For_Sampling_SubState)
-# add the null transitions to the SM
-Sampling_SubSM.add_transition(Retract_Winch_Null_Transition)
-Sampling_SubSM.add_transition(Lower_Winch_Null_Transition)
-Sampling_SubSM.add_transition(Free_Winch_Retract_Null_Transition)
-Sampling_SubSM.add_transition(Lower_UAV_Winch_Retract_Null_Transition)
-Sampling_SubSM.add_transition(Hold_For_Sampling_SubState_Null_Transition)
+Hold_For_Sampling_SubState_Null_Transition.add_action(Hold_For_Sampling_SubState_Check)   
 
 # Water_Detect_State
     # start timer and send "wander for x seconds" MAVLink command to vehicle
@@ -516,24 +543,8 @@ Water_Detect_Null_Transition.add_action(Water_CV)
 # Main
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-GPIO.setmode(GPIO.BOARD)
-# water sensor
-GPIO.setup(11, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)
-#motor GPIOs
-GPIO.setup(12, GPIO.OUT)    #deploy when positive
-GPIO.setup(32, GPIO.OUT)    #retract when positive
-#motor hall sensor inputs
-GPIO.setup(36, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)   #A
-GPIO.setup(38, GPIO.IN, pull_up_down = GPIO.PUD_DOWN)   #B
 
-#motor stuff later
-if direction == Direction["deploy"]:
-        ControllingMotor = deployMotor
-        retractMotor.stop()
 
-elif direction == Direction["retract"]:
-    ControllingMotor = retractMotor
-    deployMotor.stop()
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -549,15 +560,18 @@ Top_Level_Event_Dict = {
     "Sampling_Error" : Sampling_Error_Event,
     "Timer_Ends" : Timer_Ends_Event,
     "Manual_Takeover" : Manual_Takeover_Event,
-    "Sampling_Completed_Event" : Sampling_Completed_Event,
-    "Water_Found_Tension_Lost_Event" : Water_Found_Tension_Lost_Event,
-    "Finished_Sampling_Event" : Finished_Sampling_Event,
-    "Tension_Increased_Event" : Tension_Increased_Event,
+    "Sampling_Completed" : Sampling_Completed_Event,
+    "Water_Found_Tension_Lost" : Water_Found_Tension_Lost_Event,
+    "Finished_Sampling" : Finished_Sampling_Event,
+    "Tension_Increased" : Tension_Increased_Event,
     "No_Event" : No_Event
 }
 
 def PrintEntryState(data):
     print("Top Level Entry:", Top_Level._current_state.name, " Data:", data)
+    if(Top_Level._current_state.name == "Sampling_State"):
+        print(" > Sampling SubSM Entry:", Sampling_SubSM._current_state.name, " Data:", data)
+    print()
 
 # top level states 
 Startup_State.on_entry(PrintEntryState)
@@ -568,9 +582,26 @@ Sampling_State.on_entry(PrintEntryState)
 Water_Detect_State.on_entry(PrintEntryState)
 Manual_Check_Error_State.on_entry(PrintEntryState)
 Manual_Flight_Error_State.on_entry(PrintEntryState)
+# sampling sub states
+Lower_Winch_SubState.on_entry(PrintEntryState)
+Hold_For_Sampling_SubState.on_entry(PrintEntryState)
+Retract_Winch_SubState.on_entry(PrintEntryState)
+Lower_UAV_Retract_Winch_SubState.on_entry(PrintEntryState)
+Lower_UAV_SubState.on_entry(PrintEntryState)
+Free_Retracting_Winch_SubState.on_entry(PrintEntryState)
+Finish_SubState.on_entry(PrintEntryState)
 
 Top_Level.start("Hello World")
 
 while(1):
-    user_event = input("Enter an event: ")
+    user_event = input("$ Enter an event for "+Top_Level._current_state.name+": ")
+    # try:
     Top_Level.trigger_event(Top_Level_Event_Dict[user_event], user_event)
+    # except Exception as e:
+    #     print("ruh roh, thats not a valid state:")
+    #     GPIO.cleanup()
+    #     break
+
+
+
+    # line 342

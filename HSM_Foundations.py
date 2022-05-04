@@ -281,14 +281,19 @@ class StateMachine(object):
 
     def add_null_transition(self, state: State, evt: Event) -> \
             Optional[Transition]:
+        #state_list = [ state_index.name for state_index in self._states ]
+        #event_list = [ event_index.name for event_index in self._events ]
+        #print("----",event_list)
+        #print(evt.name)
         transition = None
         if state in self._states and evt in self._events:
             transition = NullTransition(state, evt)
             self._transitions.append(transition)
+            #print("it is a valid translation:", state.name)
         return transition
 
     # trigger event checks whether a transition can occur or not, if it is an exit state, and whether an exit callback should be called
-    def trigger_event(self, evt: Event, data: Any = None, propagate: bool = False):
+    def trigger_event(self, evt: Event, data: Any = None, propagate: bool = True):
         transition_valid = False
         if not self._initial_state:
             raise ValueError("initial state is not set")
